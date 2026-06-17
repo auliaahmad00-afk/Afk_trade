@@ -1,6 +1,8 @@
 numpy>=1.24
 pandas>=2.0
-# Opsional, hanya untuk koneksi ke broker forex sungguhan (Windows):
+# Opsional - data nyata dari Yahoo Finance (jalan di HP/cloud/PC, tanpa API key):
+# yfinance>=0.2
+# Opsional - koneksi ke broker forex sungguhan (khusus Windows):
 # MetaTrader5>=5.0
 # Untuk menjalankan test:
 # pytest>=7.0

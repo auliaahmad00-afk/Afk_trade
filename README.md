@@ -19,7 +19,8 @@ diaktifkan saat kamu siap.
 ```
 
 1. **Data** (`afk_trade/data`): ambil OHLC. Urutan fallback otomatis:
-   MetaTrader5 → CSV → data sintetis. Jadi bot bisa diuji **tanpa** MT5/internet.
+   MetaTrader5 → CSV → **yfinance (Yahoo Finance)** → data sintetis. Jadi bot
+   bisa diuji **tanpa** MT5/internet, tapi otomatis pakai data nyata bila ada.
 2. **Skenario** (`afk_trade/scenarios`): hasilkan ratusan kombinasi strategi +
    parameter dari sebuah grid.
 3. **Backtest** (`afk_trade/backtest`): untuk tiap skenario, hitung winrate,
@@ -159,7 +160,33 @@ Tambahkan kelas di `afk_trade/strategies/library.py`, daftarkan di
 `afk_trade/scenarios/generator.py`. Strategi hanya perlu mengembalikan Series
 sinyal `{-1, 0, 1}` per bar.
 
+## Sumber data nyata
+
+Tidak harus MT5. `get_data()` mencoba berurutan: **MT5 → CSV → yfinance → sintetis**.
+
+### yfinance (Yahoo Finance) — gratis, bisa di HP & cloud
+
+Paling mudah, tanpa API key, jalan di mana saja (Android via Pydroid 3/Termux,
+cloud, PC):
+
+```bash
+pip install yfinance
+python -m afk_trade.cli --preset xauusd --balance 100
+```
+
+Ticker dipetakan otomatis (mis. `XAUUSD → GC=F`, `EURUSD → EURUSD=X`) di
+`afk_trade/data/feed.py` (`_YF_TICKERS`). Matikan dengan `--no-yfinance`.
+Catatan: riwayat intraday Yahoo terbatas (mis. interval 1 jam ~730 hari terakhir).
+
+> Bila dijalankan di lingkungan dengan firewall ketat, host
+> `query1.finance.yahoo.com` / `query2.finance.yahoo.com` harus diizinkan;
+> jika diblokir, bot otomatis fallback ke data sintetis.
+
 ## Mengaktifkan MT5 (live) — saat kamu siap
+
+> Catatan: MT5 **hanya jalan di Windows desktop** (paket `MetaTrader5`). Aplikasi
+> MT5 di HP tidak punya API Python — untuk HP gunakan yfinance di atas.
+
 
 1. Jalankan di Windows dengan MetaTrader5 terpasang & login.
 2. `pip install MetaTrader5`.

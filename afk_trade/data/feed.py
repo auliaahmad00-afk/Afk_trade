@@ -35,6 +35,26 @@ _MT5_TIMEFRAMES = {
     "D1": 16408,
 }
 
+# --- Pemetaan untuk sumber data yfinance (Yahoo Finance) ---
+# Simbol broker -> ticker Yahoo. Untuk pair forex umum dipakai pola "<PAIR>=X".
+_YF_TICKERS = {
+    "XAUUSD": "GC=F",      # emas (COMEX gold futures); alternatif: "XAUUSD=X"
+    "XAGUSD": "SI=X",      # perak
+    "EURUSD": "EURUSD=X",
+    "GBPUSD": "GBPUSD=X",
+    "USDJPY": "USDJPY=X",
+}
+# Timeframe -> interval yfinance.
+_YF_INTERVALS = {
+    "M1": "1m", "M5": "5m", "M15": "15m", "M30": "30m",
+    "H1": "1h", "H4": "1h", "D1": "1d", "W1": "1wk",
+}
+# Periode maksimal yang diizinkan Yahoo per interval (riwayat intraday terbatas).
+_YF_PERIOD = {
+    "1m": "7d", "5m": "60d", "15m": "60d", "30m": "60d",
+    "1h": "730d", "1d": "max", "1wk": "max",
+}
+
 
 def synthetic_ohlc(
     bars: int = 2000,
@@ -111,21 +131,93 @@ def _load_mt5(symbol: str, timeframe: str, bars: int) -> Optional[pd.DataFrame]:
         mt5.shutdown()
 
 
+def _normalize_yf(raw: pd.DataFrame, bars: int) -> Optional[pd.DataFrame]:
+    """Ubah DataFrame hasil yfinance ke skema kita: time,open,high,low,close,volume.
+
+    Fungsi murni (tanpa jaringan) agar mudah diuji. Menangani kolom MultiIndex
+    (yfinance versi baru) dan nama kolom waktu 'Datetime' (intraday) / 'Date'.
+    """
+    if raw is None or len(raw) == 0:
+        return None
+
+    df = raw.copy()
+    # yfinance versi baru bisa mengembalikan kolom MultiIndex meski satu ticker.
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
+    df = df.reset_index()
+    time_col = next(
+        (c for c in ("Datetime", "Date", "index") if c in df.columns),
+        df.columns[0],
+    )
+    cols = {c.lower(): c for c in df.columns}
+    try:
+        out = pd.DataFrame(
+            {
+                "time": pd.to_datetime(df[time_col]),
+                "open": df[cols["open"]].astype(float),
+                "high": df[cols["high"]].astype(float),
+                "low": df[cols["low"]].astype(float),
+                "close": df[cols["close"]].astype(float),
+                "volume": df[cols["volume"]].astype(float)
+                if "volume" in cols
+                else 0.0,
+            }
+        )
+    except KeyError:
+        return None
+
+    out = out.dropna(subset=["open", "high", "low", "close"]).reset_index(drop=True)
+    if out.empty:
+        return None
+    return out.tail(bars).reset_index(drop=True)
+
+
+def _load_yfinance(symbol: str, timeframe: str, bars: int) -> Optional[pd.DataFrame]:
+    """Ambil data dari Yahoo Finance via yfinance. None jika gagal/tak terpasang."""
+    try:
+        import yfinance as yf  # type: ignore
+    except ImportError:
+        return None
+
+    ticker = _YF_TICKERS.get(symbol.upper(), f"{symbol.upper()}=X")
+    interval = _YF_INTERVALS.get(timeframe.upper(), "1h")
+    period = _YF_PERIOD.get(interval, "730d")
+    try:
+        raw = yf.download(
+            ticker,
+            period=period,
+            interval=interval,
+            auto_adjust=False,
+            progress=False,
+        )
+    except Exception:
+        return None
+    return _normalize_yf(raw, bars)
+
+
 def get_data(
     symbol: str = "EURUSD",
     timeframe: str = "H1",
     bars: int = 2000,
     *,
     csv_path: Optional[str] = None,
+    allow_yfinance: bool = True,
     allow_synthetic: bool = True,
 ) -> pd.DataFrame:
-    """Ambil data OHLC dengan fallback otomatis: MT5 -> CSV -> sintetis."""
+    """Ambil data OHLC dengan fallback otomatis: MT5 -> CSV -> yfinance -> sintetis."""
     df = _load_mt5(symbol, timeframe, bars)
     if df is not None and len(df) > 0:
         return df
 
+    # CSV eksplisit (dari pengguna) diutamakan sebelum sumber online.
     if csv_path:
         return _load_csv(csv_path)
+
+    if allow_yfinance:
+        df = _load_yfinance(symbol, timeframe, bars)
+        if df is not None and len(df) > 0:
+            return df
 
     if allow_synthetic:
         profile = _SYNTHETIC_PROFILES.get(symbol.upper(), {})
@@ -133,5 +225,5 @@ def get_data(
 
     raise RuntimeError(
         "Tidak ada sumber data tersedia (MT5 tidak aktif, CSV tidak diberikan, "
-        "dan sintetis dimatikan)."
+        "yfinance gagal/tak terpasang, dan sintetis dimatikan)."
     )

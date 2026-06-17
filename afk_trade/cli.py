@@ -50,6 +50,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="skala ukuran posisi dengan derajat konsensus voting",
     )
     p.add_argument("--csv", default=None, help="path CSV OHLC (opsional)")
+    p.add_argument(
+        "--no-yfinance", dest="yfinance", action="store_false",
+        help="jangan ambil data dari Yahoo Finance (default: coba bila terpasang)",
+    )
     p.add_argument("--top", type=int, default=10, help="jumlah skenario teratas yang ditampilkan")
     p.add_argument("--live", action="store_true", help="(belum diaktifkan) gunakan broker live")
     return p
@@ -81,8 +85,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.live:
         print("[!] Mode live belum diaktifkan demi keamanan. Jalan dalam paper trading.\n")
 
-    df = get_data(config.symbol, config.timeframe, config.bars, csv_path=args.csv)
-    print(f"Data: {len(df)} bar untuk {config.symbol} {config.timeframe}\n")
+    df = get_data(
+        config.symbol, config.timeframe, config.bars,
+        csv_path=args.csv, allow_yfinance=args.yfinance,
+    )
+    span = f"{df['time'].iloc[0]} .. {df['time'].iloc[-1]}" if "time" in df else ""
+    print(f"Data: {len(df)} bar untuk {config.symbol} {config.timeframe}  [{span}]\n")
 
     bot = TradingBot(config)
     report = bot.run(df)
