@@ -16,9 +16,17 @@ from .data.feed import get_data
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Afk_trade - bot trading berbasis probabilitas skenario")
     p.add_argument("--symbol", default="EURUSD")
+    p.add_argument("--preset", default=None, help="preset pair, mis. 'xauusd' atau 'eurusd'")
     p.add_argument("--timeframe", default="H1")
     p.add_argument("--bars", type=int, default=2000)
-    p.add_argument("--threshold", type=float, default=0.80, help="ambang winrate (0-1)")
+    p.add_argument(
+        "--mode", default="profit_factor",
+        choices=["profit_factor", "winrate", "expectancy"],
+        help="kriteria seleksi skenario",
+    )
+    p.add_argument("--threshold", type=float, default=0.80, help="ambang winrate (mode winrate)")
+    p.add_argument("--pf-threshold", type=float, default=1.3, help="ambang profit factor (mode profit_factor)")
+    p.add_argument("--balance", type=float, default=10_000.0, help="modal awal (paper)")
     p.add_argument("--min-trades", type=int, default=20)
     p.add_argument("--csv", default=None, help="path CSV OHLC (opsional)")
     p.add_argument("--top", type=int, default=10, help="jumlah skenario teratas yang ditampilkan")
@@ -29,14 +37,20 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
-    config = BotConfig(
-        symbol=args.symbol,
+    overrides = dict(
         timeframe=args.timeframe,
         bars=args.bars,
+        selection_mode=args.mode,
         win_threshold=args.threshold,
+        pf_threshold=args.pf_threshold,
         min_trades=args.min_trades,
+        starting_balance=args.balance,
         live=args.live,
     )
+    if args.preset:
+        config = BotConfig.preset(args.preset, **overrides)
+    else:
+        config = BotConfig(symbol=args.symbol, **overrides)
 
     if args.live:
         print("[!] Mode live belum diaktifkan demi keamanan. Jalan dalam paper trading.\n")
@@ -47,23 +61,32 @@ def main(argv: list[str] | None = None) -> int:
     bot = TradingBot(config)
     report = bot.run(df)
 
-    print(f"Total skenario diuji : {len(report.all_results)}")
-    print(f"Ambang winrate       : {config.win_threshold:.0%} (min {config.min_trades} trade)\n")
+    crit = {
+        "profit_factor": f"profit factor >= {config.pf_threshold}",
+        "winrate": f"winrate >= {config.win_threshold:.0%}",
+        "expectancy": f"expectancy >= {config.min_expectancy}",
+    }[config.selection_mode]
 
-    print(f"== Top {args.top} skenario (berdasarkan winrate) ==")
+    print(f"Total skenario diuji : {len(report.all_results)}")
+    print(f"Mode seleksi         : {config.selection_mode} ({crit}, min {config.min_trades} trade)\n")
+
+    print(f"== Top {args.top} skenario (urut {config.selection_mode}) ==")
     for r in report.all_results[: args.top]:
         flag = "  <== TERPILIH" if r in report.winners else ""
         print(
-            f"  {r.winrate:6.1%} | trades={r.n_trades:3d} | PF={r.profit_factor:5.2f} "
-            f"| ret={r.total_return:+7.2%} | {r.label}{flag}"
+            f"  WR={r.winrate:5.1%} | trades={r.n_trades:3d} | PF={r.profit_factor:6.2f} "
+            f"| ret={r.total_return:+7.2%} | maxDD={r.max_drawdown:5.1%} | {r.label}{flag}"
         )
 
-    print(f"\n== Skenario terpilih (winrate >= {config.win_threshold:.0%}) ==")
+    print(f"\n== Skenario terpilih ({crit}) ==")
     if not report.winners:
         print("  (tidak ada skenario yang memenuhi ambang)")
     for w in report.winners:
         sig = {1: "LONG", -1: "SHORT", 0: "FLAT"}[w.last_signal]
-        print(f"  {w.winrate:6.1%} | sinyal sekarang={sig:5s} | {w.label}")
+        print(
+            f"  PF={w.profit_factor:6.2f} | WR={w.winrate:5.1%} | ret={w.total_return:+7.2%} "
+            f"| sinyal sekarang={sig:5s} | {w.label}"
+        )
 
     print("\n== Eksekusi (paper) ==")
     if not report.executed:

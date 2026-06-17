@@ -24,11 +24,33 @@ diaktifkan saat kamu siap.
    parameter dari sebuah grid.
 3. **Backtest** (`afk_trade/backtest`): untuk tiap skenario, hitung winrate,
    profit factor, total return, max drawdown. **Winrate = probabilitas menang.**
-4. **Seleksi** (`afk_trade/selection`): ambil skenario dengan
-   `winrate ≥ ambang` **dan** `jumlah trade ≥ min_trades` (agar winrate valid
-   secara statistik — mencegah skenario 100% dari hanya 2 trade ikut terpilih).
+4. **Seleksi** (`afk_trade/selection`): saring skenario menurut **mode** terpilih,
+   selalu dengan syarat `jumlah trade ≥ min_trades` (agar statistik valid —
+   mencegah skenario 100% dari hanya 2 trade ikut terpilih):
+   - `profit_factor` (default): `profit_factor ≥ pf_threshold` (mis. 1.3).
+   - `winrate`: `winrate ≥ win_threshold` (mis. 0.80).
+   - `expectancy`: `ekspektasi profit per trade ≥ ambang`.
 5. **Eksekusi** (`afk_trade/execution`): kirim sinyal terbaru tiap skenario
    pemenang ke broker. Default `PaperBroker` (simulasi).
+
+### Strategi yang tersedia
+
+| Nama | Jenis | Ide |
+|------|-------|-----|
+| `ma_cross` | trend | MA cepat vs MA lambat |
+| `rsi_reversion` | mean-reversion | beli oversold, jual overbought |
+| `breakout` | breakout | tembus tertinggi/terendah N bar |
+| `macd` | **trend-following** | garis MACD vs garis sinyal |
+| `supertrend` | **trend-following** | ikut tren berbasis band ATR |
+| `momentum` | **trend-following** | ikut momentum + filter EMA |
+
+### ⚠️ Winrate vs trend-following
+
+Strategi **trend-following** (supertrend/macd/momentum) biasanya winrate-nya
+**rendah (~35–45%)** tapi **profitable** karena membiarkan tren besar berjalan.
+Filter "winrate ≥ 80%" akan **menolak** strategi-strategi ini. Karena itu mode
+seleksi default adalah **`profit_factor`**, bukan winrate. Gunakan mode `winrate`
+hanya jika fokus pada strategi mean-reversion.
 
 ## Instalasi
 
@@ -39,26 +61,39 @@ pip install -r requirements.txt
 ## Menjalankan
 
 ```bash
-# Pakai ambang 80% sesuai keinginan:
-python -m afk_trade.cli --symbol EURUSD --timeframe H1 --threshold 0.80 --min-trades 20
+# Emas (XAUUSD) dengan preset siap-pakai, modal $100, seleksi profit factor:
+python -m afk_trade.cli --preset xauusd --balance 100
 
-# Uji konsep cepat dengan ambang lebih longgar (data sintetis):
-python -m afk_trade.cli --threshold 0.65 --min-trades 15
+# EURUSD dengan mode winrate 80% (cocok untuk mean-reversion):
+python -m afk_trade.cli --symbol EURUSD --mode winrate --threshold 0.80
+
+# Seleksi profit factor (default) dengan ambang sendiri:
+python -m afk_trade.cli --preset xauusd --mode profit_factor --pf-threshold 1.4
 
 # Pakai data CSV sendiri (kolom: time,open,high,low,close,volume):
-python -m afk_trade.cli --csv data_eurusd.csv --threshold 0.80
+python -m afk_trade.cli --csv data_xauusd.csv --preset xauusd
 ```
 
 Opsi penting:
 
-| Flag           | Arti                                              | Default |
-|----------------|---------------------------------------------------|---------|
-| `--symbol`     | pair, mis. `EURUSD`                               | EURUSD  |
-| `--timeframe`  | `M15`, `H1`, `H4`, `D1` …                         | H1      |
-| `--bars`       | jumlah bar historis untuk backtest               | 2000    |
-| `--threshold`  | ambang winrate (0–1). **0.80 = 80%**             | 0.80    |
-| `--min-trades` | jumlah trade minimal agar winrate dipercaya      | 20      |
-| `--csv`        | path file CSV OHLC                               | —       |
+| Flag             | Arti                                                    | Default |
+|------------------|---------------------------------------------------------|---------|
+| `--symbol`       | pair, mis. `EURUSD`, `XAUUSD`                           | EURUSD  |
+| `--preset`       | preset pair: `xauusd` / `eurusd`                       | —       |
+| `--timeframe`    | `M15`, `H1`, `H4`, `D1` …                              | H1      |
+| `--bars`         | jumlah bar historis untuk backtest                     | 2000    |
+| `--mode`         | `profit_factor` / `winrate` / `expectancy`             | profit_factor |
+| `--threshold`    | ambang winrate (mode winrate)                          | 0.80    |
+| `--pf-threshold` | ambang profit factor (mode profit_factor)              | 1.3     |
+| `--balance`      | modal awal paper trading ($)                           | 10000   |
+| `--min-trades`   | jumlah trade minimal agar statistik dipercaya          | 20      |
+| `--csv`          | path file CSV OHLC                                     | —       |
+
+### Preset XAUUSD (emas)
+
+`BotConfig.preset("xauusd")` mengaktifkan profil emas: strategi trend-following
+diprioritaskan, spread lebih lebar, mode seleksi profit factor, dan **leverage
+1:100** (tanpa leverage, akun $100 tak cukup membuka posisi emas seharga ~$2.300).
 
 ## Pakai dari kode
 

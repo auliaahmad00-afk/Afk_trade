@@ -14,8 +14,12 @@ class BotConfig:
         symbol: simbol/pair yang diperdagangkan, mis. "EURUSD".
         timeframe: kerangka waktu, mis. "M15", "H1" (dipakai oleh feed MT5).
         bars: jumlah bar historis yang diambil untuk backtest.
-        win_threshold: ambang minimal winrate agar skenario dipilih (0.80 = 80%).
-        min_trades: jumlah trade minimal agar winrate dianggap valid secara statistik.
+        selection_mode: kriteria pemilihan skenario:
+            "profit_factor" (default) | "winrate" | "expectancy".
+        win_threshold: ambang minimal winrate (dipakai saat mode "winrate").
+        pf_threshold: ambang minimal profit factor (dipakai saat mode "profit_factor").
+        min_expectancy: ambang minimal ekspektasi per trade (mode "expectancy").
+        min_trades: jumlah trade minimal agar statistik skenario dianggap valid.
         cost_per_trade: biaya/spread per trade dalam fraksi harga (mis. 0.0001 = 1 pip-ish).
         starting_balance: saldo awal untuk paper trading.
         risk_per_trade: fraksi saldo yang dipertaruhkan tiap trade.
@@ -25,11 +29,15 @@ class BotConfig:
     symbol: str = "EURUSD"
     timeframe: str = "H1"
     bars: int = 2000
+    selection_mode: str = "profit_factor"
     win_threshold: float = 0.80
+    pf_threshold: float = 1.3
+    min_expectancy: float = 0.0
     min_trades: int = 20
     cost_per_trade: float = 0.0001
     starting_balance: float = 10_000.0
     risk_per_trade: float = 0.02
+    leverage: float = 1.0  # daya ungkit broker (mis. emas/forex CFD ~1:100)
     live: bool = False
     # Daftar nama strategi yang diikutkan dalam pencarian skenario.
     strategies: List[str] = field(
@@ -46,6 +54,10 @@ class BotConfig:
             raise ValueError("min_trades minimal 1")
         if self.risk_per_trade <= 0:
             raise ValueError("risk_per_trade harus > 0")
+        if self.selection_mode not in ("profit_factor", "winrate", "expectancy"):
+            raise ValueError(
+                "selection_mode harus 'profit_factor', 'winrate', atau 'expectancy'"
+            )
 
     @classmethod
     def preset(cls, name: str, **overrides) -> "BotConfig":
@@ -69,7 +81,9 @@ PRESETS = {
         # Emas trending kuat -> utamakan strategi trend-following.
         strategies=["supertrend", "macd", "momentum", "breakout", "ma_cross"],
         cost_per_trade=0.00015,  # ~spread emas relatif terhadap harga
-        win_threshold=0.80,
+        leverage=100.0,          # tipikal gold CFD; tanpa ini $100 tak cukup beli emas
+        selection_mode="profit_factor",
+        pf_threshold=1.3,
         min_trades=20,
     ),
     "eurusd": dict(

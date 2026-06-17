@@ -13,7 +13,7 @@ from .data.feed import get_data
 from .execution.broker import Broker, Order
 from .execution.paper import PaperBroker
 from .scenarios.generator import generate_scenarios
-from .selection.selector import rank_results, select_winners
+from .selection.selector import rank_results, select_scenarios
 
 
 @dataclass
@@ -37,12 +37,22 @@ class TradingBot:
         results = [
             backtest_scenario(s, df, self.config.cost_per_trade) for s in scenarios
         ]
-        return rank_results(results)
+        return rank_results(results, mode=self.config.selection_mode)
 
     def _position_volume(self, price: float) -> float:
-        """Hitung volume sederhana dari risiko per trade (paper)."""
-        risk_cash = self.config.starting_balance * self.config.risk_per_trade
-        return round(risk_cash / max(price, 1e-9), 2)
+        """Hitung volume (unit/oz) dari risiko per trade dengan memperhitungkan leverage.
+
+        notional = saldo * risk_per_trade * leverage
+        volume   = notional / harga
+        Dibulatkan ke 4 desimal agar tidak menjadi 0 untuk aset berharga tinggi
+        seperti emas pada akun kecil.
+        """
+        notional = (
+            self.config.starting_balance
+            * self.config.risk_per_trade
+            * self.config.leverage
+        )
+        return round(notional / max(price, 1e-9), 4)
 
     def execute_winners(
         self, winners: List[BacktestResult], price: float
@@ -53,6 +63,8 @@ class TradingBot:
             if w.last_signal == 0:
                 continue  # skenario menang tapi saat ini tidak memberi sinyal
             volume = self._position_volume(price)
+            if volume <= 0:
+                continue  # akun terlalu kecil untuk membuka posisi pada harga ini
             order = self.broker.market_order(
                 symbol=self.config.symbol,
                 side=w.last_signal,
@@ -71,8 +83,13 @@ class TradingBot:
             )
 
         results = self.evaluate(df)
-        winners = select_winners(
-            results, self.config.win_threshold, self.config.min_trades
+        winners = select_scenarios(
+            results,
+            mode=self.config.selection_mode,
+            min_trades=self.config.min_trades,
+            win_threshold=self.config.win_threshold,
+            pf_threshold=self.config.pf_threshold,
+            min_expectancy=self.config.min_expectancy,
         )
 
         last_price = float(df["close"].iloc[-1])

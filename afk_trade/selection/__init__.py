@@ -1,3 +1,3 @@
-from .selector import rank_results, select_winners
+from .selector import rank_results, select_scenarios, select_winners
 
-__all__ = ["rank_results", "select_winners"]
+__all__ = ["rank_results", "select_scenarios", "select_winners"]
