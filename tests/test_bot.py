@@ -35,11 +35,22 @@ def test_bot_profit_factor_mode_default():
 
 
 def test_high_threshold_may_select_nothing_but_not_crash():
-    config = BotConfig(bars=1500, win_threshold=0.999, min_trades=50)
+    config = BotConfig(bars=1500, selection_mode="winrate",
+                       win_threshold=0.999, min_trades=50)
     bot = TradingBot(config)
     df = synthetic_ohlc(bars=1500)
     report = bot.run(df)
-    # Tidak ada eksekusi jika tidak ada pemenang.
-    assert len(report.executed) == len(
-        [w for w in report.winners if w.last_signal != 0]
-    )
+    # Tanpa pemenang -> tak ada konsensus -> tak ada eksekusi.
+    assert report.aggregated.direction == 0
+    assert report.executed == []
+
+
+def test_run_executes_at_most_one_aggregated_order():
+    config = BotConfig(bars=1500, pf_threshold=1.0, min_trades=10)
+    bot = TradingBot(config)
+    df = synthetic_ohlc(bars=1500)
+    report = bot.run(df)
+    # Voting menghasilkan SATU keputusan net -> maksimal satu order.
+    assert len(report.executed) <= 1
+    if report.executed:
+        assert report.executed[0].side == report.aggregated.direction

@@ -7,6 +7,7 @@ from typing import List, Optional
 
 import pandas as pd
 
+from .aggregation.voting import AggregatedSignal, aggregate_signals
 from .backtest.engine import BacktestResult, backtest_scenario
 from .config import BotConfig
 from .data.feed import get_data
@@ -22,6 +23,7 @@ class RunReport:
 
     all_results: List[BacktestResult]
     winners: List[BacktestResult]
+    aggregated: AggregatedSignal
     executed: List[Order]
     broker_summary: dict
 
@@ -54,26 +56,29 @@ class TradingBot:
         )
         return round(notional / max(price, 1e-9), 4)
 
-    def execute_winners(
-        self, winners: List[BacktestResult], price: float
+    def execute_aggregated(
+        self, signal: AggregatedSignal, price: float
     ) -> List[Order]:
-        """Eksekusi sinyal terakhir dari tiap skenario pemenang lewat broker."""
-        executed: List[Order] = []
-        for w in winners:
-            if w.last_signal == 0:
-                continue  # skenario menang tapi saat ini tidak memberi sinyal
-            volume = self._position_volume(price)
-            if volume <= 0:
-                continue  # akun terlalu kecil untuk membuka posisi pada harga ini
-            order = self.broker.market_order(
-                symbol=self.config.symbol,
-                side=w.last_signal,
-                volume=volume,
-                price=price,
-                label=w.label,
-            )
-            executed.append(order)
-        return executed
+        """Eksekusi SATU order net hasil voting skenario terpilih."""
+        if signal.direction == 0:
+            return []  # tidak ada konsensus -> tahan diri
+        volume = self._position_volume(price)
+        if self.config.scale_by_confidence:
+            volume = round(volume * signal.confidence, 4)
+        if volume <= 0:
+            return []  # akun terlalu kecil / konsensus terlalu lemah
+        label = (
+            f"VOTE[{signal.weight_scheme}] {signal.n_long}L/{signal.n_short}S "
+            f"conf={signal.confidence:.0%}"
+        )
+        order = self.broker.market_order(
+            symbol=self.config.symbol,
+            side=signal.direction,
+            volume=volume,
+            price=price,
+            label=label,
+        )
+        return [order]
 
     def run(self, df: Optional[pd.DataFrame] = None) -> RunReport:
         """Jalankan pipeline penuh sekali jalan."""
@@ -92,12 +97,19 @@ class TradingBot:
             min_expectancy=self.config.min_expectancy,
         )
 
+        aggregated = aggregate_signals(
+            winners,
+            weight_scheme=self.config.vote_weight,
+            min_agreement=self.config.min_agreement,
+        )
+
         last_price = float(df["close"].iloc[-1])
-        executed = self.execute_winners(winners, last_price)
+        executed = self.execute_aggregated(aggregated, last_price)
 
         return RunReport(
             all_results=results,
             winners=winners,
+            aggregated=aggregated,
             executed=executed,
             broker_summary=(
                 self.broker.summary({self.config.symbol: last_price})

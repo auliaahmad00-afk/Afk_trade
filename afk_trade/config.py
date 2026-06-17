@@ -38,6 +38,10 @@ class BotConfig:
     starting_balance: float = 10_000.0
     risk_per_trade: float = 0.02
     leverage: float = 1.0  # daya ungkit broker (mis. emas/forex CFD ~1:100)
+    # Agregasi sinyal antar skenario terpilih (voting berbobot).
+    vote_weight: str = "profit_factor"  # equal | profit_factor | winrate | expectancy
+    min_agreement: float = 0.0          # ambang konsensus 0..1; di bawahnya -> FLAT
+    scale_by_confidence: bool = False   # skala ukuran posisi dengan derajat konsensus
     live: bool = False
     # Daftar nama strategi yang diikutkan dalam pencarian skenario.
     strategies: List[str] = field(
@@ -58,6 +62,12 @@ class BotConfig:
             raise ValueError(
                 "selection_mode harus 'profit_factor', 'winrate', atau 'expectancy'"
             )
+        if self.vote_weight not in ("equal", "profit_factor", "winrate", "expectancy"):
+            raise ValueError(
+                "vote_weight harus 'equal', 'profit_factor', 'winrate', atau 'expectancy'"
+            )
+        if not (0.0 <= self.min_agreement <= 1.0):
+            raise ValueError("min_agreement harus di antara 0 dan 1")
 
     @classmethod
     def preset(cls, name: str, **overrides) -> "BotConfig":

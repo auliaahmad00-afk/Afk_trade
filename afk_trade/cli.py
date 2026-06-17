@@ -28,6 +28,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--pf-threshold", type=float, default=1.3, help="ambang profit factor (mode profit_factor)")
     p.add_argument("--balance", type=float, default=10_000.0, help="modal awal (paper)")
     p.add_argument("--min-trades", type=int, default=20)
+    p.add_argument(
+        "--vote-weight", default="profit_factor",
+        choices=["equal", "profit_factor", "winrate", "expectancy"],
+        help="bobot voting antar skenario terpilih",
+    )
+    p.add_argument(
+        "--min-agreement", type=float, default=0.0,
+        help="ambang konsensus voting 0-1; di bawahnya bot tahan diri (FLAT)",
+    )
+    p.add_argument(
+        "--scale-by-confidence", action="store_true",
+        help="skala ukuran posisi dengan derajat konsensus voting",
+    )
     p.add_argument("--csv", default=None, help="path CSV OHLC (opsional)")
     p.add_argument("--top", type=int, default=10, help="jumlah skenario teratas yang ditampilkan")
     p.add_argument("--live", action="store_true", help="(belum diaktifkan) gunakan broker live")
@@ -45,6 +58,9 @@ def main(argv: list[str] | None = None) -> int:
         pf_threshold=args.pf_threshold,
         min_trades=args.min_trades,
         starting_balance=args.balance,
+        vote_weight=args.vote_weight,
+        min_agreement=args.min_agreement,
+        scale_by_confidence=args.scale_by_confidence,
         live=args.live,
     )
     if args.preset:
@@ -87,6 +103,17 @@ def main(argv: list[str] | None = None) -> int:
             f"  PF={w.profit_factor:6.2f} | WR={w.winrate:5.1%} | ret={w.total_return:+7.2%} "
             f"| sinyal sekarang={sig:5s} | {w.label}"
         )
+
+    agg = report.aggregated
+    net = {1: "LONG", -1: "SHORT", 0: "FLAT (tak ada konsensus)"}[agg.direction]
+    print(f"\n== Voting agregasi (bobot: {agg.weight_scheme}) ==")
+    print(
+        f"  Suara   : {agg.n_long} LONG / {agg.n_short} SHORT / {agg.n_flat} FLAT"
+    )
+    print(
+        f"  Bobot   : long={agg.long_weight:.2f} vs short={agg.short_weight:.2f}"
+    )
+    print(f"  Konsensus: {agg.confidence:.0%}  ->  KEPUTUSAN NET: {net}")
 
     print("\n== Eksekusi (paper) ==")
     if not report.executed:

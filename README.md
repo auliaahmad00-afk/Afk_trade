@@ -30,8 +30,25 @@ diaktifkan saat kamu siap.
    - `profit_factor` (default): `profit_factor ≥ pf_threshold` (mis. 1.3).
    - `winrate`: `winrate ≥ win_threshold` (mis. 0.80).
    - `expectancy`: `ekspektasi profit per trade ≥ ambang`.
-5. **Eksekusi** (`afk_trade/execution`): kirim sinyal terbaru tiap skenario
-   pemenang ke broker. Default `PaperBroker` (simulasi).
+5. **Agregasi** (`afk_trade/aggregation`): semua skenario terpilih **memberi
+   suara (voting berbobot)** untuk menghasilkan **satu keputusan net**
+   (LONG/SHORT/FLAT). Mencegah skenario berlawanan membuka order yang saling
+   menetralkan.
+6. **Eksekusi** (`afk_trade/execution`): kirim **satu order net** hasil voting
+   ke broker. Default `PaperBroker` (simulasi).
+
+### Agregasi sinyal (voting)
+
+Daripada tiap skenario terpilih kirim order sendiri (berisiko saling
+berlawanan & menetralkan), bot menggabungkan suaranya:
+
+- Tiap skenario menyumbang suara LONG/SHORT/FLAT sesuai sinyal terakhirnya.
+- Suara dibobot dengan `--vote-weight`:
+  `profit_factor` (default) | `winrate` | `expectancy` | `equal`.
+- Arah net = sisi dengan total bobot terbesar. Seri -> FLAT.
+- **Konsensus** = `|bobot_long − bobot_short| / total`. Bila di bawah
+  `--min-agreement`, bot **tahan diri** (FLAT) karena suara terbelah.
+- `--scale-by-confidence` mengecilkan ukuran posisi saat konsensus lemah.
 
 ### Strategi yang tersedia
 
@@ -87,6 +104,9 @@ Opsi penting:
 | `--pf-threshold` | ambang profit factor (mode profit_factor)              | 1.3     |
 | `--balance`      | modal awal paper trading ($)                           | 10000   |
 | `--min-trades`   | jumlah trade minimal agar statistik dipercaya          | 20      |
+| `--vote-weight`  | bobot voting: `profit_factor`/`winrate`/`expectancy`/`equal` | profit_factor |
+| `--min-agreement`| ambang konsensus voting 0–1 (di bawahnya FLAT)         | 0.0     |
+| `--scale-by-confidence` | skala posisi dengan derajat konsensus           | off     |
 | `--csv`          | path file CSV OHLC                                     | —       |
 
 ### Preset XAUUSD (emas)
