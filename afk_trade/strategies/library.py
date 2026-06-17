@@ -26,6 +26,22 @@ def _rsi(close: pd.Series, period: int) -> pd.Series:
     return rsi.fillna(50.0)
 
 
+def _ema(series: pd.Series, period: int) -> pd.Series:
+    """Exponential moving average."""
+    return series.ewm(span=period, adjust=False).mean()
+
+
+def _atr(df: pd.DataFrame, period: int) -> pd.Series:
+    """Average True Range (Wilder) - ukuran volatilitas, dipakai Supertrend."""
+    high, low, close = df["high"], df["low"], df["close"]
+    prev_close = close.shift(1)
+    tr = pd.concat(
+        [(high - low), (high - prev_close).abs(), (low - prev_close).abs()],
+        axis=1,
+    ).max(axis=1)
+    return tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+
+
 class MACrossStrategy(Strategy):
     """Moving-average crossover: long saat MA cepat > MA lambat, short sebaliknya."""
 
@@ -76,10 +92,107 @@ class BreakoutStrategy(Strategy):
         return sig.fillna(0).astype(int)
 
 
+class MACDStrategy(Strategy):
+    """Trend-following: long saat garis MACD di atas garis sinyal, short sebaliknya.
+
+    MACD = EMA(fast) - EMA(slow); sinyal = EMA(MACD, signal).
+    """
+
+    name = "macd"
+
+    def generate_signals(self, df: pd.DataFrame) -> pd.Series:
+        fast = int(self.params["fast"])
+        slow = int(self.params["slow"])
+        signal = int(self.params["signal"])
+        if fast >= slow:
+            return pd.Series(0, index=df.index, dtype=int)
+        macd = _ema(df["close"], fast) - _ema(df["close"], slow)
+        macd_signal = _ema(macd, signal)
+        sig = pd.Series(0, index=df.index, dtype=int)
+        sig[macd > macd_signal] = 1
+        sig[macd < macd_signal] = -1
+        return sig.astype(int)
+
+
+class SupertrendStrategy(Strategy):
+    """Trend-following berbasis ATR. Mengikuti arah tren selama belum berbalik.
+
+    Saat harga menembus band ATR ke atas -> tren naik (long); ke bawah -> short.
+    Sangat cocok untuk aset yang trending kuat seperti XAUUSD (emas).
+    """
+
+    name = "supertrend"
+
+    def generate_signals(self, df: pd.DataFrame) -> pd.Series:
+        period = int(self.params["period"])
+        mult = float(self.params["multiplier"])
+
+        atr = _atr(df, period)
+        hl2 = (df["high"] + df["low"]) / 2.0
+        upper = (hl2 + mult * atr).to_numpy()
+        lower = (hl2 - mult * atr).to_numpy()
+        close = df["close"].to_numpy()
+        n = len(df)
+
+        direction = np.ones(n, dtype=int)  # 1 = uptrend, -1 = downtrend
+        final_upper = np.copy(upper)
+        final_lower = np.copy(lower)
+
+        for i in range(1, n):
+            # Band mengetat searah tren agar tidak mudah ter-flip oleh noise.
+            final_upper[i] = (
+                min(upper[i], final_upper[i - 1])
+                if close[i - 1] <= final_upper[i - 1]
+                else upper[i]
+            )
+            final_lower[i] = (
+                max(lower[i], final_lower[i - 1])
+                if close[i - 1] >= final_lower[i - 1]
+                else lower[i]
+            )
+            if close[i] > final_upper[i - 1]:
+                direction[i] = 1
+            elif close[i] < final_lower[i - 1]:
+                direction[i] = -1
+            else:
+                direction[i] = direction[i - 1]
+
+        sig = pd.Series(direction, index=df.index, dtype=int)
+        # Nol-kan periode awal saat ATR belum terbentuk.
+        sig[atr.isna().to_numpy()] = 0
+        return sig.astype(int)
+
+
+class MomentumStrategy(Strategy):
+    """Trend-following sederhana: ikut arah momentum harga.
+
+    Long jika harga > EMA dan naik (rate-of-change positif) di atas ambang,
+    short jika sebaliknya. Filter EMA mencegah masuk melawan tren utama.
+    """
+
+    name = "momentum"
+
+    def generate_signals(self, df: pd.DataFrame) -> pd.Series:
+        lookback = int(self.params["lookback"])
+        ema_period = int(self.params["ema"])
+        threshold = float(self.params.get("threshold", 0.0))
+
+        close = df["close"]
+        roc = close.pct_change(lookback)
+        ema = _ema(close, ema_period)
+        sig = pd.Series(0, index=df.index, dtype=int)
+        sig[(roc > threshold) & (close > ema)] = 1
+        sig[(roc < -threshold) & (close < ema)] = -1
+        return sig.fillna(0).astype(int)
+
+
 STRATEGY_REGISTRY: Dict[str, Type[Strategy]] = {
     MACrossStrategy.name: MACrossStrategy,
     RSIReversionStrategy.name: RSIReversionStrategy,
     BreakoutStrategy.name: BreakoutStrategy,
+    MACDStrategy.name: MACDStrategy,
+    SupertrendStrategy.name: SupertrendStrategy,
+    MomentumStrategy.name: MomentumStrategy,
 }
 
 

@@ -33,7 +33,10 @@ class BotConfig:
     live: bool = False
     # Daftar nama strategi yang diikutkan dalam pencarian skenario.
     strategies: List[str] = field(
-        default_factory=lambda: ["ma_cross", "rsi_reversion", "breakout"]
+        default_factory=lambda: [
+            "ma_cross", "rsi_reversion", "breakout",
+            "macd", "supertrend", "momentum",
+        ]
     )
 
     def __post_init__(self) -> None:
@@ -43,3 +46,36 @@ class BotConfig:
             raise ValueError("min_trades minimal 1")
         if self.risk_per_trade <= 0:
             raise ValueError("risk_per_trade harus > 0")
+
+    @classmethod
+    def preset(cls, name: str, **overrides) -> "BotConfig":
+        """Ambil konfigurasi siap-pakai untuk sebuah pair. Override sesuka hati.
+
+        Contoh: BotConfig.preset("xauusd", starting_balance=100)
+        """
+        key = name.lower()
+        if key not in PRESETS:
+            raise KeyError(f"Preset '{name}' tidak ada. Pilihan: {list(PRESETS)}")
+        params = {**PRESETS[key], **overrides}
+        return cls(**params)
+
+
+# Preset khusus per pair. XAUUSD (emas) lebih volatil & spread lebih lebar,
+# serta lebih cocok dengan strategi trend-following.
+PRESETS = {
+    "xauusd": dict(
+        symbol="XAUUSD",
+        timeframe="H1",
+        # Emas trending kuat -> utamakan strategi trend-following.
+        strategies=["supertrend", "macd", "momentum", "breakout", "ma_cross"],
+        cost_per_trade=0.00015,  # ~spread emas relatif terhadap harga
+        win_threshold=0.80,
+        min_trades=20,
+    ),
+    "eurusd": dict(
+        symbol="EURUSD",
+        timeframe="H1",
+        strategies=["ma_cross", "rsi_reversion", "breakout", "macd", "momentum"],
+        cost_per_trade=0.0001,
+    ),
+}

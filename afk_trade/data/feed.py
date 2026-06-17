@@ -17,6 +17,13 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+# Profil data sintetis per simbol (harga awal, volatilitas, drift) agar
+# bentuk harga menyerupai pasar aslinya. XAUUSD (emas) ~ $2350 & lebih volatil.
+_SYNTHETIC_PROFILES = {
+    "XAUUSD": dict(start_price=2350.0, volatility=0.006, drift=0.00010),
+    "EURUSD": dict(start_price=1.10, volatility=0.0015, drift=0.00002),
+}
+
 # Pemetaan string timeframe -> konstanta MT5 (diisi saat MT5 tersedia).
 _MT5_TIMEFRAMES = {
     "M1": 1,
@@ -121,7 +128,8 @@ def get_data(
         return _load_csv(csv_path)
 
     if allow_synthetic:
-        return synthetic_ohlc(bars)
+        profile = _SYNTHETIC_PROFILES.get(symbol.upper(), {})
+        return synthetic_ohlc(bars, **profile)
 
     raise RuntimeError(
         "Tidak ada sumber data tersedia (MT5 tidak aktif, CSV tidak diberikan, "

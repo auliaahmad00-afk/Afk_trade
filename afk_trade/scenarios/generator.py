@@ -27,6 +27,21 @@ DEFAULT_PARAM_GRID: Dict[str, Dict[str, List[Any]]] = {
     "breakout": {
         "lookback": [10, 20, 40, 55, 80],
     },
+    # --- strategi trend-following ---
+    "macd": {
+        "fast": [8, 12, 16],
+        "slow": [21, 26, 34],
+        "signal": [9],
+    },
+    "supertrend": {
+        "period": [7, 10, 14],
+        "multiplier": [2.0, 3.0, 4.0],
+    },
+    "momentum": {
+        "lookback": [10, 20, 40],
+        "ema": [50, 100, 200],
+        "threshold": [0.0, 0.005],
+    },
 }
 
 
