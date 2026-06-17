@@ -40,6 +40,33 @@ def select_winners(
     return rank_results(winners, mode="winrate")
 
 
+def meets_criteria(
+    result: BacktestResult,
+    *,
+    mode: str = "profit_factor",
+    min_trades: int = 20,
+    win_threshold: float = 0.80,
+    pf_threshold: float = 1.3,
+    min_expectancy: float = 0.0,
+) -> bool:
+    """Apakah SATU hasil backtest memenuhi kriteria seleksi `mode`?
+
+    - winrate       : winrate >= win_threshold
+    - profit_factor : profit_factor >= pf_threshold
+    - expectancy    : avg_trade_return >= min_expectancy
+    Semua mode mensyaratkan jumlah trade >= min_trades.
+    """
+    if result.n_trades < min_trades:
+        return False
+    if mode == "winrate":
+        return result.winrate >= win_threshold
+    if mode == "profit_factor":
+        return result.profit_factor >= pf_threshold
+    if mode == "expectancy":
+        return result.avg_trade_return >= min_expectancy
+    raise ValueError(f"mode seleksi tidak dikenal: {mode}")
+
+
 def select_scenarios(
     results: List[BacktestResult],
     *,
@@ -49,21 +76,17 @@ def select_scenarios(
     pf_threshold: float = 1.3,
     min_expectancy: float = 0.0,
 ) -> List[BacktestResult]:
-    """Pilih skenario sesuai `mode`. Semua mode tetap wajib `min_trades`.
-
-    - winrate       : winrate >= win_threshold
-    - profit_factor : profit_factor >= pf_threshold
-    - expectancy    : avg_trade_return >= min_expectancy
-    """
-    eligible = [r for r in results if r.n_trades >= min_trades]
-
-    if mode == "winrate":
-        chosen = [r for r in eligible if r.winrate >= win_threshold]
-    elif mode == "profit_factor":
-        chosen = [r for r in eligible if r.profit_factor >= pf_threshold]
-    elif mode == "expectancy":
-        chosen = [r for r in eligible if r.avg_trade_return >= min_expectancy]
-    else:
-        raise ValueError(f"mode seleksi tidak dikenal: {mode}")
-
+    """Pilih skenario yang memenuhi kriteria `mode`, terurut dari terbaik."""
+    chosen = [
+        r
+        for r in results
+        if meets_criteria(
+            r,
+            mode=mode,
+            min_trades=min_trades,
+            win_threshold=win_threshold,
+            pf_threshold=pf_threshold,
+            min_expectancy=min_expectancy,
+        )
+    ]
     return rank_results(chosen, mode=mode)

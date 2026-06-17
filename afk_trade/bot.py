@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple
 
 import pandas as pd
 
@@ -15,6 +15,8 @@ from .execution.broker import Broker, Order
 from .execution.paper import PaperBroker
 from .scenarios.generator import generate_scenarios
 from .selection.selector import rank_results, select_scenarios
+from .validation.splitter import split_data
+from .validation.validator import ValidationResult, validate_scenarios
 
 
 @dataclass
@@ -26,6 +28,10 @@ class RunReport:
     aggregated: AggregatedSignal
     executed: List[Order]
     broker_summary: dict
+    # Diisi saat validasi train/test aktif:
+    validation: List[ValidationResult] = field(default_factory=list)
+    robust_winners: List[BacktestResult] = field(default_factory=list)
+    validated: bool = False
 
 
 class TradingBot:
@@ -80,15 +86,8 @@ class TradingBot:
         )
         return [order]
 
-    def run(self, df: Optional[pd.DataFrame] = None) -> RunReport:
-        """Jalankan pipeline penuh sekali jalan."""
-        if df is None:
-            df = get_data(
-                self.config.symbol, self.config.timeframe, self.config.bars
-            )
-
-        results = self.evaluate(df)
-        winners = select_scenarios(
+    def _select(self, results: List[BacktestResult]) -> List[BacktestResult]:
+        return select_scenarios(
             results,
             mode=self.config.selection_mode,
             min_trades=self.config.min_trades,
@@ -97,8 +96,52 @@ class TradingBot:
             min_expectancy=self.config.min_expectancy,
         )
 
+    def _validate(
+        self, df: pd.DataFrame
+    ) -> Tuple[List[BacktestResult], List[BacktestResult], List[BacktestResult], List[ValidationResult]]:
+        """Jalur dengan validasi out-of-sample.
+
+        Returns: (all_results_train, winners_train, robust_winners_test, validation).
+        """
+        train_df, test_df = split_data(df, self.config.test_ratio)
+        all_results = self.evaluate(train_df)
+        winners = self._select(all_results)
+
+        scenarios = generate_scenarios(self.config.strategies)
+        validation = validate_scenarios(
+            scenarios,
+            train_df,
+            test_df,
+            cost_per_trade=self.config.cost_per_trade,
+            mode=self.config.selection_mode,
+            min_trades=self.config.min_trades,
+            win_threshold=self.config.win_threshold,
+            pf_threshold=self.config.pf_threshold,
+            min_expectancy=self.config.min_expectancy,
+        )
+        # Skenario robust: lolos di train DAN test. Pakai hasil test (out-of-sample)
+        # untuk sinyal & bobot voting agar lebih jujur.
+        robust = [v.test for v in validation if v.robust]
+        robust = rank_results(robust, mode=self.config.selection_mode)
+        return all_results, winners, robust, validation
+
+    def run(self, df: Optional[pd.DataFrame] = None) -> RunReport:
+        """Jalankan pipeline penuh sekali jalan."""
+        if df is None:
+            df = get_data(
+                self.config.symbol, self.config.timeframe, self.config.bars
+            )
+
+        validation: List[ValidationResult] = []
+        if self.config.validate:
+            all_results, winners, vote_pool, validation = self._validate(df)
+        else:
+            all_results = self.evaluate(df)
+            winners = self._select(all_results)
+            vote_pool = winners  # tanpa validasi, semua pemenang ikut voting
+
         aggregated = aggregate_signals(
-            winners,
+            vote_pool,
             weight_scheme=self.config.vote_weight,
             min_agreement=self.config.min_agreement,
         )
@@ -107,7 +150,7 @@ class TradingBot:
         executed = self.execute_aggregated(aggregated, last_price)
 
         return RunReport(
-            all_results=results,
+            all_results=all_results,
             winners=winners,
             aggregated=aggregated,
             executed=executed,
@@ -116,4 +159,7 @@ class TradingBot:
                 if hasattr(self.broker, "summary")
                 else {}
             ),
+            validation=validation,
+            robust_winners=vote_pool if self.config.validate else [],
+            validated=self.config.validate,
         )

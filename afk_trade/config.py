@@ -38,6 +38,9 @@ class BotConfig:
     starting_balance: float = 10_000.0
     risk_per_trade: float = 0.02
     leverage: float = 1.0  # daya ungkit broker (mis. emas/forex CFD ~1:100)
+    # Validasi out-of-sample (train/test split) untuk melawan overfitting.
+    validate: bool = True   # pilih skenario di train, konfirmasi di test
+    test_ratio: float = 0.3  # fraksi bar terakhir untuk test
     # Agregasi sinyal antar skenario terpilih (voting berbobot).
     vote_weight: str = "profit_factor"  # equal | profit_factor | winrate | expectancy
     min_agreement: float = 0.0          # ambang konsensus 0..1; di bawahnya -> FLAT
@@ -68,6 +71,8 @@ class BotConfig:
             )
         if not (0.0 <= self.min_agreement <= 1.0):
             raise ValueError("min_agreement harus di antara 0 dan 1")
+        if not (0.0 < self.test_ratio < 1.0):
+            raise ValueError("test_ratio harus di antara 0 dan 1")
 
     @classmethod
     def preset(cls, name: str, **overrides) -> "BotConfig":

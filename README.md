@@ -30,12 +30,32 @@ diaktifkan saat kamu siap.
    - `profit_factor` (default): `profit_factor ≥ pf_threshold` (mis. 1.3).
    - `winrate`: `winrate ≥ win_threshold` (mis. 0.80).
    - `expectancy`: `ekspektasi profit per trade ≥ ambang`.
-5. **Agregasi** (`afk_trade/aggregation`): semua skenario terpilih **memberi
-   suara (voting berbobot)** untuk menghasilkan **satu keputusan net**
-   (LONG/SHORT/FLAT). Mencegah skenario berlawanan membuka order yang saling
-   menetralkan.
-6. **Eksekusi** (`afk_trade/execution`): kirim **satu order net** hasil voting
-   ke broker. Default `PaperBroker` (simulasi).
+5. **Validasi** (`afk_trade/validation`): data dibagi **kronologis** menjadi
+   train (awal) & test (akhir). Skenario dipilih di **train**, lalu diuji ulang
+   di **test** (data yang belum dilihat). Hanya skenario yang **tetap lolos di
+   test** (disebut *robust*) yang diteruskan. Ini menyaring skenario yang cuma
+   "kebetulan bagus" di masa lalu (overfitting).
+6. **Agregasi** (`afk_trade/aggregation`): skenario robust **memberi suara
+   (voting berbobot)** untuk menghasilkan **satu keputusan net**
+   (LONG/SHORT/FLAT). Mencegah skenario berlawanan saling menetralkan.
+7. **Eksekusi** (`afk_trade/execution`): kirim **satu order net** ke broker.
+   Default `PaperBroker` (simulasi).
+
+### Validasi out-of-sample (lawan overfitting)
+
+Memilih skenario "terbaik" dari ratusan kombinasi di data historis sangat rawan
+**overfitting** — bagus di masa lalu, gagal ke depan. Bot melawannya dengan
+**train/test split**:
+
+- `--test-ratio` (default 0.3): fraksi bar **terakhir** jadi data test.
+- Skenario dipilih hanya pada train, lalu **dikonfirmasi** pada test.
+- *Robust* = lolos kriteria di train **dan** test. Hanya yang robust dieksekusi.
+- Sinyal & bobot voting diambil dari hasil **test** (out-of-sample) agar jujur.
+- Matikan dengan `--no-validate` (tidak disarankan untuk live).
+
+Contoh nyata dari simulasi XAUUSD: dari 6 kandidat yang lolos train, hanya 2
+yang robust — 4 sisanya (PF train 1.15–1.24) **ambruk di test** (PF < 1, return
+negatif). Tepat skenario overfit itu yang ditolak.
 
 ### Agregasi sinyal (voting)
 
@@ -104,6 +124,8 @@ Opsi penting:
 | `--pf-threshold` | ambang profit factor (mode profit_factor)              | 1.3     |
 | `--balance`      | modal awal paper trading ($)                           | 10000   |
 | `--min-trades`   | jumlah trade minimal agar statistik dipercaya          | 20      |
+| `--test-ratio`   | fraksi bar terakhir untuk test out-of-sample           | 0.3     |
+| `--no-validate`  | matikan validasi train/test                            | (aktif) |
 | `--vote-weight`  | bobot voting: `profit_factor`/`winrate`/`expectancy`/`equal` | profit_factor |
 | `--min-agreement`| ambang konsensus voting 0–1 (di bawahnya FLAT)         | 0.0     |
 | `--scale-by-confidence` | skala posisi dengan derajat konsensus           | off     |
